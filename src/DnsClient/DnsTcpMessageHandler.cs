@@ -1,7 +1,10 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -16,19 +19,53 @@ namespace DnsClient
 
         public override DnsMessageHandleType Type { get; } = DnsMessageHandleType.TCP;
 
-        public override DnsResponseMessage Query(IPEndPoint endpoint, DnsRequestMessage request, TimeSpan timeout)
+        public override DnsResponseMessage Query(IPEndPoint server, DnsRequestMessage request, TimeSpan timeout)
         {
-            if (timeout.TotalMilliseconds != Timeout.Infinite && timeout.TotalMilliseconds < int.MaxValue)
+            CancellationToken cancellationToken = default;
+
+            using var cts = timeout.TotalMilliseconds != Timeout.Infinite && timeout.TotalMilliseconds < int.MaxValue ?
+                new CancellationTokenSource(timeout) : null;
+
+            cancellationToken = cts?.Token ?? default;
+
+            ClientPool pool;
+            while (!_pools.TryGetValue(server, out pool))
             {
-                using (var cts = new CancellationTokenSource(timeout))
-                {
-                    return QueryAsync(endpoint, request, cts.Token)
-                        .WithCancellation(cts.Token)
-                        .ConfigureAwait(false).GetAwaiter().GetResult();
-                }
+                _pools.TryAdd(server, new ClientPool(true, server));
             }
 
-            return QueryAsync(endpoint, request, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var entry = pool.GetNextClient();
+
+            using var cancelCallback = cancellationToken.Register(() =>
+            {
+                if (entry == null)
+                {
+                    return;
+                }
+
+                entry.DisposeClient();
+            });
+
+            try
+            {
+                var response = QueryInternal(entry.Client, request, cancellationToken);
+                ValidateResponse(request, response);
+
+                pool.Enqueue(entry);
+
+                return response;
+            }
+            catch (ObjectDisposedException)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+            catch
+            {
+                entry.DisposeClient();
+                throw;
+            }
         }
 
         public override async Task<DnsResponseMessage> QueryAsync(
@@ -44,7 +81,7 @@ namespace DnsClient
                 _pools.TryAdd(server, new ClientPool(true, server));
             }
 
-            var entry = await pool.GetNextClient().ConfigureAwait(false);
+            var entry = await pool.GetNextClientAsync().ConfigureAwait(false);
 
             using var cancelCallback = cancellationToken.Register(() =>
             {
@@ -60,6 +97,7 @@ namespace DnsClient
             {
                 var response = await QueryAsyncInternal(entry.Client, request, cancellationToken).ConfigureAwait(false);
 
+                cancellationToken.ThrowIfCancellationRequested();
                 ValidateResponse(request, response);
 
                 pool.Enqueue(entry);
@@ -73,14 +111,15 @@ namespace DnsClient
             }
         }
 
-        private async Task<DnsResponseMessage> QueryAsyncInternal(TcpClient client, DnsRequestMessage request, CancellationToken cancellationToken)
+        private DnsResponseMessage QueryInternal(TcpClient client, DnsRequestMessage request, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var stream = client.GetStream();
 
             // use a pooled buffer to writer the data + the length of the data later into the first two bytes
-            using (var memory = new PooledBytes(DnsDatagramWriter.BufferSize + 2))
+            using var memory = new PooledBytes(DnsQueryOptions.MaximumBufferSize);
+
             using (var writer = new DnsDatagramWriter(new ArraySegment<byte>(memory.Buffer, 2, memory.Buffer.Length - 2)))
             {
                 GetRequestData(request, writer);
@@ -89,6 +128,95 @@ namespace DnsClient
                 memory.Buffer[1] = (byte)(dataLength & 0xff);
 
                 //await client.Client.SendAsync(new ArraySegment<byte>(memory.Buffer, 0, dataLength + 2), SocketFlags.None).ConfigureAwait(false);
+                stream.Write(memory.Buffer, 0, dataLength + 2);
+                stream.Flush();
+            }
+
+            if (!stream.CanRead)
+            {
+                // might retry
+                throw new TimeoutException();
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var responses = new List<DnsResponseMessage>();
+            byte[] buffer = memory.Buffer;
+
+            do
+            {
+                int bytesReceivedForLen = 0, readForLen;
+
+                while ((bytesReceivedForLen += readForLen = stream.Read(buffer, bytesReceivedForLen, 2)) < 2)
+                {
+                    if (readForLen <= 0)
+                    {
+                        // disconnected, might retry
+                        throw new TimeoutException();
+                    }
+                }
+
+                int length = buffer[0] << 8 | buffer[1];
+
+                if (length <= 0)
+                {
+                    // server signals close/disconnecting, might retry
+                    throw new TimeoutException();
+                }
+
+                if (length > buffer.Length)
+                {
+                    buffer = new byte[length];
+                }
+
+                int bytesReceived = 0, read;
+                int readSize = length > 4096 ? 4096 : length;
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                while (!cancellationToken.IsCancellationRequested
+                    && (bytesReceived += read = stream.Read(buffer, bytesReceived, readSize)) < length)
+                {
+                    if (read <= 0)
+                    {
+                        // disconnected
+                        throw new TimeoutException();
+                    }
+                    if (bytesReceived + readSize > length)
+                    {
+                        readSize = length - bytesReceived;
+
+                        if (readSize <= 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                DnsResponseMessage response = GetResponseMessage(new ArraySegment<byte>(buffer, 0, bytesReceived));
+                responses.Add(response);
+            } while (stream.DataAvailable && !cancellationToken.IsCancellationRequested);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return DnsResponseMessage.Combine(responses);
+        }
+
+        private async Task<DnsResponseMessage> QueryAsyncInternal(TcpClient client, DnsRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var stream = client.GetStream();
+
+            // use a pooled buffer to writer the data + the length of the data later into the first two bytes
+            using var memory = new PooledBytes(DnsQueryOptions.MaximumBufferSize);
+
+            using (var writer = new DnsDatagramWriter(new ArraySegment<byte>(memory.Buffer, 2, memory.Buffer.Length - 2)))
+            {
+                GetRequestData(request, writer);
+                int dataLength = writer.Index;
+                memory.Buffer[0] = (byte)((dataLength >> 8) & 0xff);
+                memory.Buffer[1] = (byte)(dataLength & 0xff);
+
                 await stream.WriteAsync(memory.Buffer, 0, dataLength + 2, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -106,20 +234,17 @@ namespace DnsClient
             do
             {
                 int length;
-                using (var lengthBuffer = new PooledBytes(2))
+                int bytesReceivedForLen = 0, readForLen;
+                while ((bytesReceivedForLen += (readForLen = await stream.ReadAsync(memory.Buffer, bytesReceivedForLen, 2, cancellationToken).ConfigureAwait(false))) < 2)
                 {
-                    int bytesReceived = 0, read;
-                    while ((bytesReceived += (read = await stream.ReadAsync(lengthBuffer.Buffer, bytesReceived, 2, cancellationToken).ConfigureAwait(false))) < 2)
+                    if (readForLen <= 0)
                     {
-                        if (read <= 0)
-                        {
-                            // disconnected, might retry
-                            throw new TimeoutException();
-                        }
+                        // disconnected, might retry
+                        throw new TimeoutException();
                     }
-
-                    length = lengthBuffer.Buffer[0] << 8 | lengthBuffer.Buffer[1];
                 }
+
+                length = memory.Buffer[0] << 8 | memory.Buffer[1];
 
                 if (length <= 0)
                 {
@@ -127,42 +252,42 @@ namespace DnsClient
                     throw new TimeoutException();
                 }
 
-                using (var memory = new PooledBytes(length))
+                byte[] buffer = memory.Buffer.Length <= length ? new byte[length] : memory.Buffer;
+                int bytesReceived = 0, read;
+                int readSize = length > 4096 ? 4096 : length;
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                while (!cancellationToken.IsCancellationRequested
+                    && (bytesReceived += read = await stream.ReadAsync(buffer, bytesReceived, readSize, cancellationToken).ConfigureAwait(false)) < length)
                 {
-                    int bytesReceived = 0, read;
-                    int readSize = length > 4096 ? 4096 : length;
-
-                    while (!cancellationToken.IsCancellationRequested
-                        && (bytesReceived += read = await stream.ReadAsync(memory.Buffer, bytesReceived, readSize, cancellationToken).ConfigureAwait(false)) < length)
+                    if (read <= 0)
                     {
-                        if (read <= 0)
-                        {
-                            // disconnected
-                            throw new TimeoutException();
-                        }
-                        if (bytesReceived + readSize > length)
-                        {
-                            readSize = length - bytesReceived;
+                        // disconnected
+                        throw new TimeoutException();
+                    }
+                    if (bytesReceived + readSize > length)
+                    {
+                        readSize = length - bytesReceived;
 
-                            if (readSize <= 0)
-                            {
-                                break;
-                            }
+                        if (readSize <= 0)
+                        {
+                            break;
                         }
                     }
-
-                    DnsResponseMessage response = GetResponseMessage(new ArraySegment<byte>(memory.Buffer, 0, bytesReceived));
-
-                    responses.Add(response);
                 }
+
+                DnsResponseMessage response = GetResponseMessage(new ArraySegment<byte>(buffer, 0, bytesReceived));
+                responses.Add(response);
             } while (stream.DataAvailable && !cancellationToken.IsCancellationRequested);
 
+            cancellationToken.ThrowIfCancellationRequested();
             return DnsResponseMessage.Combine(responses);
         }
 
         private class ClientPool : IDisposable
         {
-            private bool _disposedValue = false;
+            private bool _disposedValue;
             private readonly bool _enablePool;
             private ConcurrentQueue<ClientEntry> _clients = new ConcurrentQueue<ClientEntry>();
             private readonly IPEndPoint _endpoint;
@@ -173,7 +298,32 @@ namespace DnsClient
                 _endpoint = endpoint;
             }
 
-            public async Task<ClientEntry> GetNextClient()
+            public ClientEntry GetNextClient()
+            {
+                if (_disposedValue)
+                {
+                    throw new ObjectDisposedException(nameof(ClientPool));
+                }
+
+                ClientEntry entry = null;
+                if (_enablePool)
+                {
+                    while (entry == null && !TryDequeue(out entry))
+                    {
+                        entry = new ClientEntry(new TcpClient(_endpoint.AddressFamily) { LingerState = new LingerOption(true, 0) }, _endpoint);
+                        entry.Client.Connect(_endpoint.Address, _endpoint.Port);
+                    }
+                }
+                else
+                {
+                    entry = new ClientEntry(new TcpClient(_endpoint.AddressFamily), _endpoint);
+                    entry.Client.Connect(_endpoint.Address, _endpoint.Port);
+                }
+
+                return entry;
+            }
+
+            public async Task<ClientEntry> GetNextClientAsync()
             {
                 if (_disposedValue)
                 {
@@ -286,11 +436,7 @@ namespace DnsClient
                 {
                     try
                     {
-#if !NET45
                         Client.Dispose();
-#else
-                        Client.Close();
-#endif
                     }
                     catch { }
                 }

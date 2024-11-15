@@ -1,5 +1,8 @@
-﻿using System;
-using System.Linq;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using Xunit;
 
 namespace DnsClient.Tests
@@ -55,7 +58,7 @@ namespace DnsClient.Tests
             Assert.Equal(3, name.NumberOfLabels);
         }
 
-#if !NET5_0_OR_GREATER // Actually changed behavior in NET50
+#if !NET6_0_OR_GREATER // Actually changed behavior in NET50
         [Fact]
         public void DnsString_ReadPuny_IDNA2003_Invalid()
         {
@@ -79,7 +82,7 @@ namespace DnsClient.Tests
         [Fact]
         public void DnsString_ParseNullQueryString()
         {
-            Action act = () => DnsString.Parse(null);
+            static void act() => DnsString.Parse(null);
 
             Assert.ThrowsAny<ArgumentNullException>(act);
         }
@@ -98,7 +101,7 @@ namespace DnsClient.Tests
             var ex = Record.Exception(() => DnsString.Parse("www.goo0000000000000000000000000000000000000000000000000000000000001.com"));
 
             Assert.NotNull(ex);
-            Assert.Contains("is longer than " + DnsString.LabelMaxLength, ex.Message);
+            Assert.Contains("is longer than " + DnsString.LabelMaxLength, ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -107,7 +110,7 @@ namespace DnsClient.Tests
             var ex = Record.Exception(() => DnsString.Parse("www.goo000000000000000000000000000000000000000000000000000000000000.goo000000000000000000000000000000000000000000000000000000000000.goo000000000000000000000000000000000000000000000000000000000000.goo000000000000000000000000000000000000000000000000000.com"));
 
             Assert.NotNull(ex);
-            Assert.Contains("maximum of " + DnsString.QueryMaxLength, ex.Message);
+            Assert.Contains("maximum of " + DnsString.QueryMaxLength, ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         //// relaxed puny code rules
@@ -126,7 +129,7 @@ namespace DnsClient.Tests
             var ex = Record.Exception(() => DnsString.Parse(".www.google.com"));
 
             Assert.NotNull(ex);
-            Assert.Contains("found leading root", ex.Message);
+            Assert.Contains("found leading root", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]

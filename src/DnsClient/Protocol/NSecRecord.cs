@@ -1,5 +1,10 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace DnsClient.Protocol
@@ -75,14 +80,14 @@ namespace DnsClient.Protocol
 
         private protected override string RecordToString()
         {
-            return string.Format("{0} {1}", NextDomainName, string.Join(" ", TypeBitMaps));
+            return string.Format(CultureInfo.InvariantCulture, "{0} {1}", NextDomainName, string.Join(" ", TypeBitMaps));
         }
 
         internal static IEnumerable<int> ReadBitmap(byte[] data)
         {
             if (data.Length < 2)
             {
-                throw new DnsResponseParseException("Invalid bitmap length, less than 2 bytes available.");
+                yield break;
             }
 
             for (var n = 0; n < data.Length;)

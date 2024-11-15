@@ -1,5 +1,9 @@
-﻿using System;
-using System.Collections.Concurrent;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -10,7 +14,7 @@ namespace DnsClient
 {
     internal class DnsUdpMessageHandler : DnsMessageHandler
     {
-        private const int MaxSize = 4096;
+        private const int MaxSize = DnsQueryOptions.MaximumBufferSize;
 
         public override DnsMessageHandleType Type { get; } = DnsMessageHandleType.UDP;
 
@@ -19,47 +23,40 @@ namespace DnsClient
         }
 
         public override DnsResponseMessage Query(
-            IPEndPoint server,
+            IPEndPoint endpoint,
             DnsRequestMessage request,
             TimeSpan timeout)
         {
-            var udpClient = new UdpClient(server.AddressFamily);
+#pragma warning disable CA2000 // Dispose objects before losing scope
+            Socket socket = new Socket(endpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+#pragma warning restore CA2000 // Dispose objects before losing scope
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(MaxSize);
 
             try
             {
                 // -1 indicates infinite
                 int timeoutInMillis = timeout.TotalMilliseconds >= int.MaxValue ? -1 : (int)timeout.TotalMilliseconds;
-                udpClient.Client.ReceiveTimeout = timeoutInMillis;
-                udpClient.Client.SendTimeout = timeoutInMillis;
+                socket.ReceiveTimeout = timeoutInMillis;
+                socket.SendTimeout = timeoutInMillis;
 
-                using (var writer = new DnsDatagramWriter())
+                using (var writer = new DnsDatagramWriter(new ArraySegment<byte>(buffer)))
                 {
                     GetRequestData(request, writer);
-                    udpClient.Client.SendTo(writer.Data.Array, writer.Data.Offset, writer.Data.Count, SocketFlags.None, server);
+                    socket.SendTo(writer.Data.Array, writer.Data.Count, SocketFlags.None, endpoint);
                 }
 
-                var readSize = udpClient.Available > MaxSize ? udpClient.Available : MaxSize;
-
-                using (var memory = new PooledBytes(readSize))
-                {
-                    var received = udpClient.Client.Receive(memory.Buffer, 0, readSize, SocketFlags.None);
-
-                    var response = GetResponseMessage(new ArraySegment<byte>(memory.Buffer, 0, received));
-
-                    ValidateResponse(request, response);
-
-                    return response;
-                }
+                EndPoint ep = endpoint;
+                int count = socket.ReceiveFrom(buffer, SocketFlags.None, ref ep);
+                var response = GetResponseMessage(new ArraySegment<byte>(buffer, 0, count));
+                ValidateResponse(request, response);
+                return response;
             }
             finally
             {
+                ArrayPool<byte>.Shared.Return(buffer);
                 try
                 {
-#if !NET45
-                    udpClient.Dispose();
-#else
-                    udpClient.Close();
-#endif
+                    socket.Dispose();
                 }
                 catch { }
             }
@@ -72,52 +69,27 @@ namespace DnsClient
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var udpClient = new UdpClient(endpoint.AddressFamily);
-
+#pragma warning disable CA2000 // Dispose objects before losing scope
+            Socket socket = new Socket(endpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+#pragma warning restore CA2000 // Dispose objects before losing scope
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(MaxSize);
             try
             {
                 using var callback = cancellationToken.Register(() =>
                 {
-#if !NET45
-                    udpClient.Dispose();
-#else
-                    udpClient.Close();
-#endif
+                    socket.Dispose();
                 });
 
                 using (var writer = new DnsDatagramWriter())
                 {
                     GetRequestData(request, writer);
-                    await udpClient.SendAsync(writer.Data.Array, writer.Data.Count, endpoint).ConfigureAwait(false);
+                    await socket.SendToAsync(writer.Data, endpoint).ConfigureAwait(false);
                 }
 
-                var readSize = udpClient.Available > MaxSize ? udpClient.Available : MaxSize;
-
-                using (var memory = new PooledBytes(readSize))
-                {
-
-#if NET6_0_OR_GREATER
-                    int received = await udpClient.Client.ReceiveAsync(
-                        new ArraySegment<byte>(memory.Buffer),
-                        SocketFlags.None,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                    var response = GetResponseMessage(new ArraySegment<byte>(memory.Buffer, 0, received));
-#elif !NET45
-                    int received = await udpClient.Client.ReceiveAsync(new ArraySegment<byte>(memory.Buffer), SocketFlags.None).ConfigureAwait(false);
-
-                    var response = GetResponseMessage(new ArraySegment<byte>(memory.Buffer, 0, received));
-
-#else
-                    var result = await udpClient.ReceiveAsync().ConfigureAwait(false);
-
-                    var response = GetResponseMessage(new ArraySegment<byte>(result.Buffer, 0, result.Buffer.Length));
-#endif
-
-                    ValidateResponse(request, response);
-
-                    return response;
-                }
+                var result = await socket.ReceiveFromAsync(new ArraySegment<byte>(buffer), endpoint).ConfigureAwait(false);
+                var response = GetResponseMessage(new ArraySegment<byte>(buffer, 0, result.ReceivedBytes));
+                ValidateResponse(request, response);
+                return response;
             }
             catch (SocketException se) when (se.SocketErrorCode == SocketError.OperationAborted)
             {
@@ -130,13 +102,10 @@ namespace DnsClient
             }
             finally
             {
+                ArrayPool<byte>.Shared.Return(buffer);
                 try
                 {
-#if !NET45
-                    udpClient.Dispose();
-#else
-                    udpClient.Close();
-#endif
+                    socket.Dispose();
                 }
                 catch { }
             }

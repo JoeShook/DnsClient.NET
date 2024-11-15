@@ -1,23 +1,30 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using McMaster.Extensions.CommandLineUtils;
 
 namespace DigApp
 {
-    public class Program
+    public static class Program
     {
         public static async Task<int> Main(string[] args)
         {
             DnsClient.Tracing.Source.Switch.Level = SourceLevels.Warning;
             DnsClient.Tracing.Source.Listeners.Add(new ConsoleTraceListener());
 
-            var app = new CommandLineApplication(throwOnUnexpectedArg: true);
+            using var app = new CommandLineApplication();
+            app.UnrecognizedArgumentHandling = UnrecognizedArgumentHandling.Throw;
 
             try
             {
-                _ = app.Command("perf", (perfApp) => _ = new PerfCommand(perfApp, args), throwOnUnexpectedArg: true);
-                _ = app.Command("random", (randApp) => _ = new RandomCommand(randApp, args), throwOnUnexpectedArg: true);
+                var perApp = app.Command("perf", (perfApp) => _ = new PerfCommand(perfApp, args));
+                perApp.UnrecognizedArgumentHandling = UnrecognizedArgumentHandling.Throw;
+                var randomApp = app.Command("random", (randApp) => _ = new RandomCommand(randApp, args));
+                randomApp.UnrecognizedArgumentHandling = UnrecognizedArgumentHandling.Throw;
 
                 // Command must initialize so that it adds the configuration.
                 _ = new DigCommand(app, args);

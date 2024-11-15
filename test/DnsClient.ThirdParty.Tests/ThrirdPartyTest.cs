@@ -1,7 +1,8 @@
+// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
 using System;
-using System.Linq;
-using System.Reflection;
-using System.Threading.Tasks;
 using MongoDB.Driver;
 using Xunit;
 
@@ -11,18 +12,19 @@ namespace DnsClient.ThirdParty.Tests
     {
         private const string TestConnection = "mongodb+srv://doesnotexist.internal.example/?serverSelectionTimeout=2&connectTimeoutMS=2000";
 
-#if NET471
+#if NET472
 
         [Fact]
         public void MongoDriver_Compat_2_8()
         {
             var ex = Record.Exception(() => new MongoClient(TestConnection));
             Assert.IsType<MongoConfigurationException>(ex);
+            Assert.Contains("SRV record for doesnotexist.internal.example", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
 #endif
 
-#if NETCOREAPP3_1_OR_GREATER
+#if NET6_0_OR_GREATER
         [Fact]
         public void MongoDriver_Compat_210()
         {

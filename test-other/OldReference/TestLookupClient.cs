@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Net;
 using System.Threading.Tasks;
 using DnsClient;
@@ -29,25 +33,26 @@ namespace OldReference
             //// changed return type to IReadonlyCollection at some point...
         }
 
-        public LookupClient SetNonDefaults()
-        {
-            var client = new LookupClient
-            {
-                ContinueOnDnsError = false,
-                EnableAuditTrail = true,
-                MinimumCacheTimeout = TimeSpan.FromSeconds(11),
-                Recursion = false,
-                Retries = 10,
-                ThrowDnsErrors = true,
-                Timeout = TimeSpan.FromMinutes(1),
-                UseCache = false,
-                UseRandomNameServer = false,
-                UseTcpFallback = false,
-                UseTcpOnly = true
-            };
+        // This was obsolete for a long time now. Those options are gone now.
+        ////public LookupClient SetNonDefaults()
+        ////{
+        ////    var client = new LookupClient
+        ////    {
+        ////        ContinueOnDnsError = false,
+        ////        EnableAuditTrail = true,
+        ////        MinimumCacheTimeout = TimeSpan.FromSeconds(11),
+        ////        Recursion = false,
+        ////        Retries = 10,
+        ////        ThrowDnsErrors = true,
+        ////        Timeout = TimeSpan.FromMinutes(1),
+        ////        UseCache = false,
+        ////        UseRandomNameServer = false,
+        ////        UseTcpFallback = false,
+        ////        UseTcpOnly = true
+        ////    };
 
-            return client;
-        }
+        ////    return client;
+        ////}
 
         public void TestQuery_1_1()
         {
@@ -72,32 +77,32 @@ namespace OldReference
         public async Task TestQueryAsync_1_1()
         {
             var client = new LookupClient();
-            await client.QueryAsync("domain", QueryType.A);
-            await client.QueryAsync("domain", QueryType.A, QueryClass.IN);
-            await client.QueryAsync("domain", QueryType.A, cancellationToken: default);
-            await client.QueryAsync("domain", QueryType.A, QueryClass.IN, default);
+            await client.QueryAsync("domain", QueryType.A).ConfigureAwait(false);
+            await client.QueryAsync("domain", QueryType.A, QueryClass.IN).ConfigureAwait(false);
+            await client.QueryAsync("domain", QueryType.A, cancellationToken: default).ConfigureAwait(false);
+            await client.QueryAsync("domain", QueryType.A, QueryClass.IN, default).ConfigureAwait(false);
 
-            await client.QueryReverseAsync(IPAddress.Loopback);
-            await client.QueryReverseAsync(IPAddress.Loopback, default);
+            await client.QueryReverseAsync(IPAddress.Loopback).ConfigureAwait(false);
+            await client.QueryReverseAsync(IPAddress.Loopback, default).ConfigureAwait(false);
 
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, cancellationToken: default);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, QueryClass.IN);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, QueryClass.IN, default);
-            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns.Address }, IPAddress.Loopback);
-            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns.Address }, IPAddress.Loopback, default);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, cancellationToken: default).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, QueryClass.IN).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns.Address }, "domain", QueryType.A, QueryClass.IN, default).ConfigureAwait(false);
+            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns.Address }, IPAddress.Loopback).ConfigureAwait(false);
+            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns.Address }, IPAddress.Loopback, default).ConfigureAwait(false);
 
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, cancellationToken: default);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, QueryClass.IN);
-            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, QueryClass.IN, default);
-            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns }, IPAddress.Loopback);
-            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns }, IPAddress.Loopback, default);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, cancellationToken: default).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, QueryClass.IN).ConfigureAwait(false);
+            await client.QueryServerAsync(new[] { NameServer.GooglePublicDns }, "domain", QueryType.A, QueryClass.IN, default).ConfigureAwait(false);
+            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns }, IPAddress.Loopback).ConfigureAwait(false);
+            await client.QueryServerReverseAsync(new[] { NameServer.GooglePublicDns }, IPAddress.Loopback, default).ConfigureAwait(false);
 
-            await client.GetHostEntryAsync(IPAddress.Loopback);
-            await client.GetHostEntryAsync("localhost");
-            await client.GetHostNameAsync(IPAddress.Loopback);
-            await client.ResolveServiceAsync("domain", "srv", tag: null);
+            await client.GetHostEntryAsync(IPAddress.Loopback).ConfigureAwait(false);
+            await client.GetHostEntryAsync("localhost").ConfigureAwait(false);
+            await client.GetHostNameAsync(IPAddress.Loopback).ConfigureAwait(false);
+            await client.ResolveServiceAsync("domain", "srv", tag: null).ConfigureAwait(false);
         }
 
         public void TestProtocol_1_1()
@@ -168,7 +173,7 @@ namespace OldReference
             _ = wks.Address.ToString() + wks.Protocol + wks.Bitmap.ToString();
         }
 
-#if NETCOREAPP3_1
+#if NET6_0
 
         public void TestProtocol_1_2()
         {
@@ -183,14 +188,5 @@ namespace OldReference
         }
 
 #endif
-        ////public void TestProtocol_1_3()
-        ////{
-        ////    var dnsKey = new DnsKeyRecord();
-        ////    var ds = new DsRecord();
-        ////    var nsec = new NsecRecord();
-        ////    var rrsig = new RRSigRecord();
-        ////    new TlsaRecord();
-        ////    new UnknownRecord();
-        ////}
     }
 }

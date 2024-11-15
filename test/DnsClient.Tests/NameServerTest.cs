@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Net;
 using System.Threading.Tasks;
 using DnsClient.Windows;
@@ -12,8 +16,8 @@ namespace DnsClient.Tests
         [Fact]
         public void NativeDnsServerResolution()
         {
-            var ex = Record.Exception(() => NameServer.ResolveNameServersNative());
-            Assert.Null(ex);
+            var result = NameServer.ResolveNameServersNative();
+            Assert.NotEmpty(result);
         }
 
         [Fact]
@@ -51,8 +55,8 @@ namespace DnsClient.Tests
         {
             var client = new LookupClient(NameServer.Cloudflare);
 
-            await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.QueryServerAsync(new[] { IPAddress.Any }, "query", QueryType.A)).ConfigureAwait(false);
-            await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.QueryServerReverseAsync(new[] { IPAddress.Any }, IPAddress.Loopback)).ConfigureAwait(false);
+            await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.QueryServerAsync(new[] { IPAddress.Any }, "query", QueryType.A));
+            await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.QueryServerReverseAsync(new[] { IPAddress.Any }, IPAddress.Loopback));
         }
 
         [Fact]

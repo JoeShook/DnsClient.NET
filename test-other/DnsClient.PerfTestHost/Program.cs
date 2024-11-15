@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -8,12 +12,12 @@ using System.Threading.Tasks;
 
 namespace DnsClient.PerfTestHost
 {
-    internal class Program
+    internal static class Program
     {
         private static async Task Main()
         {
             var port = 5053;
-            var server = new StaticDnsServer(
+            using var server = new StaticDnsServer(
                 printStats: false,
                 port: port,
                 workers: 2);
@@ -41,7 +45,7 @@ namespace DnsClient.PerfTestHost
                 {
                     RunSync(client, runTime, tasksCount + 8 * i);
 
-                    await RunAsync(client, runTime, tasksCount + 8 * i);
+                    await RunAsync(client, runTime, tasksCount + 8 * i).ConfigureAwait(false);
                 }
             }
 
@@ -55,7 +59,7 @@ namespace DnsClient.PerfTestHost
             long execCount = 0;
             long tookOverall = 0;
 
-            Action act = () =>
+            void act()
             {
                 var swatchInner = Stopwatch.StartNew();
                 while (swatch.ElapsedMilliseconds < runTime * 1000)
@@ -71,7 +75,7 @@ namespace DnsClient.PerfTestHost
 
                 var took = swatchInner.ElapsedTicks;
                 Interlocked.Add(ref tookOverall, took);
-            };
+            }
 
             Parallel.Invoke(new ParallelOptions()
             {
@@ -98,7 +102,7 @@ namespace DnsClient.PerfTestHost
                 var swatchInner = Stopwatch.StartNew();
                 while (swatch.ElapsedMilliseconds < runTime * 1000)
                 {
-                    var result = await client.QueryAsync("doesntmatter.com", QueryType.A);
+                    var result = await client.QueryAsync("doesntmatter.com", QueryType.A).ConfigureAwait(false);
                     if (result.HasError || result.Answers.Count < 1)
                     {
                         throw new Exception("Expected something");
@@ -117,7 +121,7 @@ namespace DnsClient.PerfTestHost
                 tasks.Add(Worker());
             }
 
-            await Task.WhenAll(tasks.ToArray());
+            await Task.WhenAll(tasks.ToArray()).ConfigureAwait(false);
 
             double execPerMs = execCount / swatch.ElapsedMilliseconds;
             double exedTimeInMs = 1 / execPerMs;

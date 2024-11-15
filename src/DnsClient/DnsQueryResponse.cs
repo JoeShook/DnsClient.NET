@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DnsClient.Protocol;
@@ -160,7 +164,7 @@ namespace DnsClient
             {
                 var value = (Header.ToString() + string.Join("", Questions) + string.Join("", AllRecords));
 
-#if NET5_0_OR_GREATER || NETSTANDARD2_1
+#if NET6_0_OR_GREATER || NETSTANDARD2_1
                 _hashCode = value.GetHashCode(StringComparison.Ordinal);
 #else
                 _hashCode = value.GetHashCode();

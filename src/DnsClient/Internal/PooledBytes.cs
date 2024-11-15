@@ -1,6 +1,9 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Buffers;
-using System.Linq;
 
 namespace DnsClient.Internal
 {
@@ -11,7 +14,7 @@ namespace DnsClient.Internal
         private static readonly ArrayPool<byte> s_pool = ArrayPool<byte>.Create(4096 * 4, 100);
         private int _length;
         private ArraySegment<byte> _buffer;
-        private bool _disposed = false;
+        private bool _disposed;
 
         public PooledBytes(int length)
         {

@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright 2024 Michael Conrad.
+// Licensed under the Apache License, Version 2.0.
+// See LICENSE file for details.
+
+using System;
 using System.Globalization;
 
 namespace DnsClient
@@ -121,7 +125,7 @@ namespace DnsClient
         /// <inheritdoc />
         public override int GetHashCode()
         {
-#if NET5_0_OR_GREATER || NETSTANDARD2_1
+#if NET6_0_OR_GREATER || NETSTANDARD2_1
             return Value.GetHashCode(StringComparison.Ordinal);
 #else
             return Value.GetHashCode();
@@ -248,13 +252,18 @@ namespace DnsClient
         /// <returns>The <see cref="DnsString"/> representation.</returns>
         public static DnsString FromResponseQueryString(string query)
         {
+            if (query is null)
+            {
+                throw new ArgumentNullException(nameof(query));
+            }
+
             var data = query;
             if (query.Length == 0 || query[query.Length - 1] != Dot)
             {
                 data += DotStr;
             }
 
-#if NET5_0_OR_GREATER || NETSTANDARD2_1
+#if NET6_0_OR_GREATER || NETSTANDARD2_1
             if (data.Contains(ACEPrefix, StringComparison.Ordinal))
 #else
             if (data.Contains(ACEPrefix))
